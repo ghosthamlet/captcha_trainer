@@ -26,6 +26,7 @@ class RunMode(object):
 class CNNNetwork(object):
     CNN5 = 'CNN5'
     DenseNet = 'DenseNet'
+    ResNet = 'ResNet'
 
 
 class RecurrentNetwork:
@@ -36,6 +37,7 @@ class RecurrentNetwork:
 NETWORK_MAP = {
     'CNN5': CNNNetwork.CNN5,
     'DenseNet': CNNNetwork.DenseNet,
+    'ResNet': CNNNetwork.ResNet,
     'LSTM': RecurrentNetwork.LSTM,
     'BLSTM': RecurrentNetwork.BLSTM,
 }

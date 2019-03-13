@@ -61,6 +61,54 @@ class GraphOCR(object):
                     x = self._leaky_relu(x, 0.01)
                     x = self._max_pool(x, 2, strides[1])
 
+        elif self.network == CNNNetwork.ResNet:
+
+            x = self.zero_padding(self.inputs, (3, 3))
+
+            # Stage 1
+            _, _, _, in_channels = x.shape.as_list()
+
+            a1 = self._conv2d(
+                x=x,
+                name="conv1",
+                filter_size=7,
+                in_channels=in_channels,
+                out_channels=64,
+                strides=2,
+                padding='VALID'
+            )
+
+            a1 = self._batch_norm(x=a1, name='bn_conv1')
+            a1 = tf.nn.relu(a1)
+            # a1 = self._leaky_relu(a1)
+
+            a1 = tf.nn.max_pool(a1, ksize=(1, 3, 3, 1), strides=(1, 2, 2, 1), padding='VALID')
+
+            # Stage 2
+            a2 = self.convolutional_block(a1, f=3, out_channels=[64, 64, 256], stage=2, block='a', s=1)
+            a2 = self.identity_block(a2, f=3, out_channels=[64, 64, 256], stage=2, block='b')
+            a2 = self.identity_block(a2, f=3, out_channels=[64, 64, 256], stage=2, block='c')
+
+            # Stage 3
+            a3 = self.convolutional_block(a2, 3, [128, 128, 512], stage=3, block='a', s=2)
+            a3 = self.identity_block(a3, 3, [128, 128, 512], stage=3, block='b')
+            a3 = self.identity_block(a3, 3, [128, 128, 512], stage=3, block='c')
+            a3 = self.identity_block(a3, 3, [128, 128, 512], stage=3, block='d')
+
+            # Stage 4
+            a4 = self.convolutional_block(a3, 3, [256, 256, 1024], stage=4, block='a', s=2)
+            a4 = self.identity_block(a4, 3, [256, 256, 1024], stage=4, block='b')
+            a4 = self.identity_block(a4, 3, [256, 256, 1024], stage=4, block='c')
+            a4 = self.identity_block(a4, 3, [256, 256, 1024], stage=4, block='d')
+            a4 = self.identity_block(a4, 3, [256, 256, 1024], stage=4, block='e')
+            a4 = self.identity_block(a4, 3, [256, 256, 1024], stage=4, block='f')
+
+            # Stage 5
+            a5 = self.convolutional_block(a4, 3, [512, 512, 2048], stage=5, block='a', s=2)
+            a5 = self.identity_block(a5, 3, [512, 512, 2048], stage=5, block='b')
+            x = self.identity_block(a5, 3, [512, 512, 2048], stage=5, block='c')
+            # x = tf.nn.avg_pool(x, ksize=(1, 2, 2, 1), strides=(1, 2, 2, 1), padding='VALID', name='avg_pool')
+
         elif self.network == CNNNetwork.DenseNet:
             with tf.variable_scope('DenseNet'):
                 nb_filter = 64
@@ -142,7 +190,6 @@ class GraphOCR(object):
             self.predict = predict
 
     def _build_train_op(self):
-
         self.global_step = tf.train.get_or_create_global_step()
         # ctc loss function, using forward and backward algorithms and maximum likelihood.
         self.loss = tf.nn.ctc_loss(
@@ -150,6 +197,7 @@ class GraphOCR(object):
             inputs=self.predict,
             sequence_length=self.seq_len,
             ctc_merge_repeated=CTC_MERGE_REPEATED,
+            # ignore_longer_outputs_than_inputs=True,
             preprocess_collapse_repeated=PREPROCESS_COLLAPSE_REPEATED
         )
         self.cost = tf.reduce_mean(self.loss)
@@ -196,76 +244,232 @@ class GraphOCR(object):
 
         self.last_batch_error = tf.reduce_mean(tf.edit_distance(tf.cast(self.decoded[0], tf.int32), self.labels))
 
-    def _batch_norm(self, name, x):
-        with tf.variable_scope(name):
+    def zero_padding(self, x, pad=(3, 3)):
+        padding = tf.constant([[0, 0], [pad[0], pad[0]], [pad[1], pad[1]], [0, 0]])
+        return tf.pad(x, padding, 'CONSTANT')
 
-            # Get the last dimension of tensor, the mean after, the variance is this dimension
-            params_shape = [x.get_shape()[-1]]
+    # def _batch_norm(self, name, x):
+    #     with tf.variable_scope(name):
+    #
+    #         # Get the last dimension of tensor, the mean after, the variance is this dimension
+    #         params_shape = [x.get_shape()[-1]]
+    #
+    #         # Normalized data is the mean value of 0 after the variance is 1,
+    #         # - there is also an adjustment of x = x * gamma + beta
+    #         # This will continue to adjust with training
+    #         beta = tf.get_variable(
+    #             'beta', params_shape, tf.float32,
+    #             initializer=tf.constant_initializer(0.0, tf.float32))
+    #         gamma = tf.get_variable(
+    #             'gamma', params_shape, tf.float32,
+    #             initializer=tf.constant_initializer(1.0, tf.float32))
+    #
+    #         # When training, constantly adjust the smoothing mean, smoothing the variance
+    #         # In the prediction process, the adjusted smooth variance mean is used for standardization during training.
+    #         if self.mode == RunMode.Trains:
+    #             # Get batch average and variance, size[Last Dimension]
+    #             mean, variance = tf.nn.moments(x, [0, 1, 2], name='moments')
+    #
+    #             # These two names, moving_mean and moving_variance must be equal to both training and prediction
+    #             # - get_variable() can be used to create shared variables
+    #             moving_mean = tf.get_variable(
+    #                 'moving_mean', params_shape, tf.float32,
+    #                 initializer=tf.constant_initializer(0.0, tf.float32),
+    #                 trainable=False)
+    #             moving_variance = tf.get_variable(
+    #                 'moving_variance', params_shape, tf.float32,
+    #                 initializer=tf.constant_initializer(1.0, tf.float32),
+    #                 trainable=False)
+    #
+    #             self._extra_train_ops.append(moving_averages.assign_moving_average(
+    #                 moving_mean, mean, 0.9))
+    #             self._extra_train_ops.append(moving_averages.assign_moving_average(
+    #                 moving_variance, variance, 0.9))
+    #         else:
+    #             mean = tf.get_variable(
+    #                 'moving_mean', params_shape, tf.float32,
+    #                 initializer=tf.constant_initializer(0.0, tf.float32),
+    #                 trainable=False)
+    #             variance = tf.get_variable(
+    #                 'moving_variance', params_shape, tf.float32,
+    #                 initializer=tf.constant_initializer(1.0, tf.float32),
+    #                 trainable=False)
+    #
+    #             tf.summary.histogram(mean.op.name, mean)
+    #             tf.summary.histogram(variance.op.name, variance)
+    #
+    #         x_bn = tf.nn.batch_normalization(x, mean, variance, beta, gamma, 0.001)
+    #         x_bn.set_shape(x.get_shape())
+    #
+    #         return x_bn
 
-            # Normalized data is the mean value of 0 after the variance is 1,
-            # - there is also an adjustment of x = x * gamma + beta
-            # This will continue to adjust with training
-            beta = tf.get_variable(
-                'beta', params_shape, tf.float32,
-                initializer=tf.constant_initializer(0.0, tf.float32))
-            gamma = tf.get_variable(
-                'gamma', params_shape, tf.float32,
-                initializer=tf.constant_initializer(1.0, tf.float32))
-
-            # When training, constantly adjust the smoothing mean, smoothing the variance
-            # In the prediction process, the adjusted smooth variance mean is used for standardization during training.
-            if self.mode == RunMode.Trains:
-                # Get batch average and variance, size[Last Dimension]
-                mean, variance = tf.nn.moments(x, [0, 1, 2], name='moments')
-
-                # These two names, moving_mean and moving_variance must be equal to both training and prediction
-                # - get_variable() can be used to create shared variables
-                moving_mean = tf.get_variable(
-                    'moving_mean', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(0.0, tf.float32),
-                    trainable=False)
-                moving_variance = tf.get_variable(
-                    'moving_variance', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(1.0, tf.float32),
-                    trainable=False)
-
-                self._extra_train_ops.append(moving_averages.assign_moving_average(
-                    moving_mean, mean, 0.9))
-                self._extra_train_ops.append(moving_averages.assign_moving_average(
-                    moving_variance, variance, 0.9))
-            else:
-                mean = tf.get_variable(
-                    'moving_mean', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(0.0, tf.float32),
-                    trainable=False)
-                variance = tf.get_variable(
-                    'moving_variance', params_shape, tf.float32,
-                    initializer=tf.constant_initializer(1.0, tf.float32),
-                    trainable=False)
-
-                tf.summary.histogram(mean.op.name, mean)
-                tf.summary.histogram(variance.op.name, variance)
-
-            x_bn = tf.nn.batch_normalization(x, mean, variance, beta, gamma, 0.001)
-            x_bn.set_shape(x.get_shape())
-
-            return x_bn
-
-    def _conv2d(self, x, name, filter_size, in_channels, out_channels, strides):
+    def _conv2d(self, x, name, filter_size, in_channels, out_channels, strides, padding='SAME'):
+        # n = filter_size * filter_size * out_channels
         with tf.variable_scope(name):
             kernel = tf.get_variable(name='DW',
                                      shape=[filter_size, filter_size, in_channels, out_channels],
                                      dtype=tf.float32,
-                                     initializer=tf.contrib.layers.xavier_initializer())
+                                     initializer=tf.contrib.layers.xavier_initializer()
+                                     # initializer=tf.random_normal_initializer(stddev=np.sqrt(2.0 / n))
+                                     )
 
             b = tf.get_variable(name='bais',
                                 shape=[out_channels],
                                 dtype=tf.float32,
                                 initializer=tf.constant_initializer())
-
-            con2d_op = tf.nn.conv2d(x, kernel, [1, strides, strides, 1], padding='SAME')
-
+            con2d_op = tf.nn.conv2d(x, kernel, [1, strides, strides, 1], padding=padding)
+        # return con2d_op
         return tf.nn.bias_add(con2d_op, b)
+
+    def identity_block(self, x, f, out_channels, stage, block):
+        """
+        Implementing a ResNet identity block with shortcut path
+        passing over 3 Conv Layers
+
+        @params
+        X - input tensor of shape (m, in_H, in_W, in_C)
+        f - size of middle layer filter
+        out_channels - tuple of number of filters in 3 layers
+        stage - used to name the layers
+        block - used to name the layers
+
+        @returns
+        A - Output of identity_block
+        params - Params used in identity block
+        """
+
+        conv_name = 'res' + str(stage) + block + '_branch'
+        bn_name = 'bn' + str(stage) + block + '_branch'
+
+        _, _, _, in_channels = x.shape.as_list()
+
+        x = self._conv2d(
+            x=x,
+            name="{}2a".format(conv_name),
+            filter_size=1,
+            in_channels=in_channels,
+            out_channels=out_channels[0],
+            strides=1,
+            padding='VALID'
+        )
+
+        x = self._batch_norm(x=x, name=bn_name + '2a')
+        x = tf.nn.relu(x)
+        # x = self._leaky_relu(x)
+
+        _, _, _, in_channels = x.shape.as_list()
+        x = self._conv2d(
+            x=x,
+            name="{}2b".format(conv_name),
+            filter_size=f,
+            in_channels=in_channels,
+            out_channels=out_channels[1],
+            strides=1,
+            padding='SAME'
+        )
+        x = self._batch_norm(x=x, name=bn_name + '2b')
+        x = tf.nn.relu(x)
+        # x = self._leaky_relu(x)
+
+        _, _, _, in_channels = x.shape.as_list()
+        x = self._conv2d(
+            x=x,
+            name="{}2c".format(conv_name),
+            filter_size=1,
+            in_channels=in_channels,
+            out_channels=out_channels[2],
+            strides=1,
+            padding='VALID'
+        )
+        x = self._batch_norm(x=x, name=bn_name + '2c')
+
+        x = tf.add(x, x)
+        x = tf.nn.relu(x)
+        # x = self._leaky_relu(x)
+
+        return x
+
+    def convolutional_block(self, x, f, out_channels, stage, block, s=2):
+        """
+        Implementing a ResNet convolutional block with shortcut path
+        passing over 3 Conv Layers having different sizes
+
+        @params
+        X - input tensor of shape (m, in_H, in_W, in_C)
+        f - size of middle layer filter
+        out_channels - tuple of number of filters in 3 layers
+        stage - used to name the layers
+        block - used to name the layers
+        s - strides used in first layer of convolutional block
+
+        @returns
+        A - Output of convolutional_block
+        params - Params used in convolutional block
+        """
+
+        conv_name = 'res' + str(stage) + block + '_branch'
+        bn_name = 'bn' + str(stage) + block + '_branch'
+
+        _, _, _, in_channels = x.shape.as_list()
+        a1 = self._conv2d(
+            x=x,
+            name="{}2a".format(conv_name),
+            filter_size=1,
+            in_channels=in_channels,
+            out_channels=out_channels[0],
+            strides=s,
+            padding='VALID'
+        )
+        a1 = self._batch_norm(x=a1, name=bn_name + '2a')
+        a1 = tf.nn.relu(a1)
+        # a1 = self._leaky_relu(a1)
+
+        _, _, _, in_channels = a1.shape.as_list()
+        a2 = self._conv2d(
+            x=a1,
+            name="{}2b".format(conv_name),
+            filter_size=f,
+            in_channels=in_channels,
+            out_channels=out_channels[1],
+            strides=1,
+            padding='SAME'
+        )
+        a2 = self._batch_norm(x=a2, name=bn_name + '2b')
+        a2 = tf.nn.relu(a2)
+        # a2 = self._leaky_relu(a2)
+
+        _, _, _, in_channels = a2.shape.as_list()
+        a3 = self._conv2d(
+            x=a2,
+            name="{}2c".format(conv_name),
+            filter_size=1,
+            in_channels=in_channels,
+            out_channels=out_channels[2],
+            strides=1,
+            padding='VALID'
+        )
+        a3 = self._batch_norm(x=a3, name=bn_name + '2c')
+        a3 = tf.nn.relu(a3)
+        # a3 = self._leaky_relu(a3)
+
+        _, _, _, in_channels = x.shape.as_list()
+        x = self._conv2d(
+            x=x,
+            name="{}1".format(conv_name),
+            filter_size=1,
+            in_channels=in_channels,
+            out_channels=out_channels[2],
+            strides=s,
+            padding='VALID'
+        )
+
+        x = self._batch_norm(x=x, name=bn_name + '1')
+
+        x = tf.add(a3, x)
+        # x = self._leaky_relu(x)
+        x = tf.nn.relu(x)
+
+        return x
 
     # Variant Relu
     # The gradient of the non-negative interval is constant,
@@ -344,3 +548,111 @@ class GraphOCR(object):
                 _inputs = tf.concat(output, 2)
 
         return _inputs
+
+    def _batch_norm(self, name, x):
+        with tf.variable_scope(name):
+
+            # Get the last dimension of tensor, the mean after, the variance is this dimension
+            params_shape = [x.get_shape()[-1]]
+
+            # Normalized data is the mean value of 0 after the variance is 1,
+            # - there is also an adjustment of x = x * gamma + beta
+            # This will continue to adjust with training
+            beta = tf.get_variable(
+                'beta', params_shape, tf.float32,
+                initializer=tf.constant_initializer(0.0, tf.float32))
+            gamma = tf.get_variable(
+                'gamma', params_shape, tf.float32,
+                initializer=tf.constant_initializer(1.0, tf.float32))
+
+            # When training, constantly adjust the smoothing mean, smoothing the variance
+            # In the prediction process, the adjusted smooth variance mean is used for standardization during training.
+            if self.mode == RunMode.Trains:
+                # Get batch average and variance, size[Last Dimension]
+                mean, variance = tf.nn.moments(x, [0, 1, 2], name='moments')
+
+                # These two names, moving_mean and moving_variance must be equal to both training and prediction
+                # - get_variable() can be used to create shared variables
+                moving_mean = tf.get_variable(
+                    'moving_mean', params_shape, tf.float32,
+                    initializer=tf.constant_initializer(0.0, tf.float32),
+                    trainable=False)
+                moving_variance = tf.get_variable(
+                    'moving_variance', params_shape, tf.float32,
+                    initializer=tf.constant_initializer(1.0, tf.float32),
+                    trainable=False)
+
+                self._extra_train_ops.append(moving_averages.assign_moving_average(
+                    moving_mean, mean, 0.9))
+                self._extra_train_ops.append(moving_averages.assign_moving_average(
+                    moving_variance, variance, 0.9))
+            else:
+                mean = tf.get_variable(
+                    'moving_mean', params_shape, tf.float32,
+                    initializer=tf.constant_initializer(0.0, tf.float32),
+                    trainable=False)
+                variance = tf.get_variable(
+                    'moving_variance', params_shape, tf.float32,
+                    initializer=tf.constant_initializer(1.0, tf.float32),
+                    trainable=False)
+
+                tf.summary.histogram(mean.op.name, mean)
+                tf.summary.histogram(variance.op.name, variance)
+
+            x_bn = tf.nn.batch_normalization(x, mean, variance, beta, gamma, 0.001)
+            x_bn.set_shape(x.get_shape())
+
+            return x_bn
+
+    # def _batch_norm(self, name, x):
+    #     with tf.variable_scope(name):
+    #         # 输入通道维数
+    #         params_shape = [x.get_shape()[-1]]
+    #         # offset
+    #         beta = tf.get_variable('beta',
+    #                                params_shape,
+    #                                tf.float32,
+    #                                initializer=tf.constant_initializer(0.0, tf.float32))
+    #         # scale
+    #         gamma = tf.get_variable('gamma',
+    #                                 params_shape,
+    #                                 tf.float32,
+    #                                 initializer=tf.constant_initializer(1.0, tf.float32))
+    #
+    #         if self.mode == RunMode.Trains:
+    #             # 为每个通道计算均值、标准差
+    #             mean, variance = tf.nn.moments(x, [0, 1, 2], name='moments')
+    #             # 新建或建立测试阶段使用的batch均值、标准差
+    #             moving_mean = tf.get_variable('moving_mean',
+    #                                           params_shape, tf.float32,
+    #                                           initializer=tf.constant_initializer(0.0, tf.float32),
+    #                                           trainable=False)
+    #             moving_variance = tf.get_variable('moving_variance',
+    #                                               params_shape, tf.float32,
+    #                                               initializer=tf.constant_initializer(1.0, tf.float32),
+    #                                               trainable=False)
+    #             # 添加batch均值和标准差的更新操作(滑动平均)
+    #             # moving_mean = moving_mean * decay + mean * (1 - decay)
+    #             # moving_variance = moving_variance * decay + variance * (1 - decay)
+    #             self._extra_train_ops.append(moving_averages.assign_moving_average(
+    #                 moving_mean, mean, 0.9))
+    #             self._extra_train_ops.append(moving_averages.assign_moving_average(
+    #                 moving_variance, variance, 0.9))
+    #         else:
+    #             # 获取训练中积累的batch均值、标准差
+    #             mean = tf.get_variable('moving_mean',
+    #                                    params_shape, tf.float32,
+    #                                    initializer=tf.constant_initializer(0.0, tf.float32),
+    #                                    trainable=False)
+    #             variance = tf.get_variable('moving_variance',
+    #                                        params_shape, tf.float32,
+    #                                        initializer=tf.constant_initializer(1.0, tf.float32),
+    #                                        trainable=False)
+    #             # 添加到直方图总结
+    #             tf.summary.histogram(mean.op.name, mean)
+    #             tf.summary.histogram(variance.op.name, variance)
+    #
+    #         # BN层：((x-mean)/var)*gamma+beta
+    #         y = tf.nn.batch_normalization(x, mean, variance, beta, gamma, 0.001)
+    #         y.set_shape(x.get_shape())
+    #         return y

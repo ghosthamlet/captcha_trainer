@@ -56,6 +56,8 @@ def _convert_dataset(file_list, mode):
     with tf.python_io.TFRecordWriter(output_filename) as writer:
         for i, file_name in enumerate(file_list):
             try:
+                if file_name.split(PATH_SPLIT)[-1] in IGNORE_FILES:
+                    continue
                 sys.stdout.write('\r>> Converting image %d/%d ' % (i + 1, len(file_list)))
                 sys.stdout.flush()
                 image_data = _image(file_name)
