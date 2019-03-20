@@ -5,6 +5,7 @@ import sys
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
 from config import *
+from SRU import SRUCell
 
 
 class GraphOCR(object):
@@ -142,13 +143,11 @@ class GraphOCR(object):
                 cell1 = tf.contrib.rnn.LSTMCell(NUM_HIDDEN * 2, state_is_tuple=True)
                 if self.mode == RunMode.Trains:
                     cell1 = tf.contrib.rnn.DropoutWrapper(cell=cell1, output_keep_prob=0.8)
-
                 cell2 = tf.contrib.rnn.LSTMCell(NUM_HIDDEN * 2, state_is_tuple=True)
                 if self.mode == RunMode.Trains:
                     cell2 = tf.contrib.rnn.DropoutWrapper(cell=cell2, output_keep_prob=0.8)
 
                 stack = tf.contrib.rnn.MultiRNNCell([cell1, cell2], state_is_tuple=True)
-
                 outputs, _ = tf.nn.dynamic_rnn(stack, x, self.seq_len, dtype=tf.float32)
 
         elif self.recurrent == RecurrentNetwork.BLSTM:
@@ -156,6 +155,23 @@ class GraphOCR(object):
 
                 outputs = self._stacked_bidirectional_rnn(
                     tf.contrib.rnn.LSTMCell,
+                    NUM_HIDDEN,
+                    LSTM_LAYER_NUM,
+                    x,
+                    self.seq_len
+                )
+        elif self.recurrent == RecurrentNetwork.SRU:
+            cell1 = SRUCell(NUM_HIDDEN * 2, False)
+            cell2 = SRUCell(NUM_HIDDEN * 2, False)
+
+            stack = tf.contrib.rnn.MultiRNNCell([cell1, cell2], state_is_tuple=True)
+            outputs, _ = tf.nn.dynamic_rnn(stack, x, self.seq_len, dtype=tf.float32)
+
+        elif self.recurrent == RecurrentNetwork.BSRU:
+            with tf.variable_scope('BSRU'):
+
+                outputs = self._stacked_bidirectional_rnn(
+                    SRUCell,
                     NUM_HIDDEN,
                     LSTM_LAYER_NUM,
                     x,

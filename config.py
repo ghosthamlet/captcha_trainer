@@ -32,6 +32,8 @@ class CNNNetwork(object):
 class RecurrentNetwork:
     LSTM = 'LSTM'
     BLSTM = 'BLSTM'
+    SRU = 'SRU'
+    BSRU = 'BSRU'
 
 
 NETWORK_MAP = {
@@ -40,6 +42,8 @@ NETWORK_MAP = {
     'ResNet': CNNNetwork.ResNet,
     'LSTM': RecurrentNetwork.LSTM,
     'BLSTM': RecurrentNetwork.BLSTM,
+    'SRU': RecurrentNetwork.SRU,
+    'BSRU': RecurrentNetwork.BSRU
 }
 
 TFRECORDS_NAME_MAP = {
