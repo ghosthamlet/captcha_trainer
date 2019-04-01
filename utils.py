@@ -173,6 +173,25 @@ class DataIterator:
         lengths = np.asarray([len(_) for _ in sequences], dtype=np.int64)
         return sequences, lengths
 
+    @staticmethod
+    def get_label_and_lens(sequences):
+        """
+        Args:
+            sequences:a list of lists of dtype where each element is a sequence
+        Returns:
+            A tuple with(flat_labels,per_lebel_len_list)
+        """
+        flat_labels = []
+        labels_len = []
+
+        for n, seq in enumerate(sequences):
+            flat_labels.extend(seq)
+            labels_len.append(len(seq))
+
+        flat_labels = np.asarray(flat_labels, dtype=np.int32)
+        labels_len = np.asarray(labels_len, dtype=np.int32)
+        return flat_labels, labels_len
+
     def generate_batch_by_files(self, index=None):
         if index:
             image_batch = [self._image(self.image_path[i]) for i in index]
@@ -184,9 +203,10 @@ class DataIterator:
 
     def _generate_batch(self, image_batch, label_batch):
         batch_inputs, batch_seq_len = self._get_input_lens(np.array(image_batch))
-        batch_labels = sparse_tuple_from_label(label_batch)
+        batch_labels, batch_labels_len = self.get_label_and_lens(label_batch)
         self._label_batch = batch_labels
-        return batch_inputs, batch_seq_len, batch_labels
+
+        return batch_inputs, batch_seq_len, batch_labels, batch_labels_len
 
     def generate_batch_by_tfrecords(self, sess):
         _image, _label = sess.run([self.image_batch, self.label_batch])
@@ -216,7 +236,7 @@ def accuracy_calculation(original_seq, decoded_seq, ignore_value=-1):
     # Here is for debugging, positioning error source use
     # error_sample = []
     for i, origin_label in enumerate(original_seq):
-        decoded_label = [j for j in decoded_seq[i] if j != ignore_value]
+        decoded_label = [j for j in decoded_seq[i] if j != ignore_value and j != 0]
         if i < 5:
             print(i, len(origin_label), len(decoded_label), origin_label, decoded_label)
         if origin_label == decoded_label:

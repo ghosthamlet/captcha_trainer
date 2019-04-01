@@ -2,6 +2,7 @@
 # -*- coding:utf-8 -*-
 # Author: kerlomz <kerlomz@gmail.com>
 import sys
+import warpctc_tensorflow
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
 from config import *
@@ -15,7 +16,9 @@ class GraphOCR(object):
         self.network = cnn
         self.recurrent = recurrent
         self.inputs = tf.placeholder(tf.float32, [None, RESIZE[0], RESIZE[1], 1], name='input')
-        self.labels = tf.sparse_placeholder(tf.int32, name='labels')
+        # self.labels = tf.sparse_placeholder(tf.int32, name='labels')
+        self.labels = tf.placeholder(tf.int32, [None])
+        self.label_len = tf.placeholder(tf.int32, [None])
         self._extra_train_ops = []
         self.seq_len = None
         self.merged_summary = None
@@ -211,14 +214,17 @@ class GraphOCR(object):
     def _build_train_op(self):
         self.global_step = tf.train.get_or_create_global_step()
         # ctc loss function, using forward and backward algorithms and maximum likelihood.
-        self.loss = tf.nn.ctc_loss(
-            labels=self.labels,
-            inputs=self.predict,
-            sequence_length=self.seq_len,
-            ctc_merge_repeated=CTC_MERGE_REPEATED,
-            # ignore_longer_outputs_than_inputs=True,
-            preprocess_collapse_repeated=PREPROCESS_COLLAPSE_REPEATED
+
+        # with tf.get_default_graph()._kernel_label_map({"CTCLoss": "WarpCTC"}):
+        #     self.loss = tf.nn.ctc_loss(inputs=self.predict, labels=self.labels, sequence_length=self.seq_len)
+
+        self.loss = warpctc_tensorflow.ctc(
+            activations=self.predict,
+            flat_labels=self.labels,
+            label_lengths=self.label_len,
+            input_lengths=self.seq_len
         )
+
         self.cost = tf.reduce_mean(self.loss)
         tf.summary.scalar('cost', self.cost)
 
@@ -246,38 +252,22 @@ class GraphOCR(object):
 
         # Option 2: tf.contrib.ctc.ctc_beam_search_decoder
         # (it's slower but you'll get better results)
-        # self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(
-        #     self.predict,
-        #     self.seq_len,
-        #     merge_repeated=False
-        # )
-
-        # Find the optimal path
-        self.decoded, self.log_prob = tf.nn.ctc_beam_search_decoder(
+        self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(
             self.predict,
             self.seq_len,
-            merge_repeated=False,
+            merge_repeated=False
         )
+
+        # Find the optimal path
+        # self.decoded, self.log_prob = tf.nn.ctc_beam_search_decoder(
+        #     self.predict,
+        #     self.seq_len,
+        #     merge_repeated=False,
+        # )
 
         self.dense_decoded = tf.sparse_tensor_to_dense(self.decoded[0], default_value=-1, name="dense_decoded")
 
-        self.last_batch_error = tf.reduce_mean(tf.edit_distance(tf.cast(self.decoded[0], tf.int32), self.labels))
-
-    def _fully_connected(self, x, out_dim):
-        print('----', out_dim)
-        print('=====', x.get_shape()[1])
-        # 输入转换成2D tensor，尺寸为[N,-1]
-        # x = tf.reshape(x, [BATCH_SIZE, -1])
-        # 参数w，平均随机初始化，[-sqrt(3/dim), sqrt(3/dim)]*factor
-        w = tf.get_variable(
-            name='DW',
-            shape=[x.get_shape()[1], out_dim],
-            initializer=tf.truncated_normal_initializer(stddev=0.1)
-        )
-        # 参数b，0值初始化
-        b = tf.get_variable('biases', [out_dim], initializer=tf.constant_initializer())
-        # 计算x*w+b
-        return tf.nn.xw_plus_b(x, w, b)
+        # self.last_batch_error = tf.reduce_mean(tf.edit_distance(tf.cast(self.decoded[0], tf.int32), self.labels))
 
     def zero_padding(self, x, pad=(3, 3)):
         padding = tf.constant([[0, 0], [pad[0], pad[0]], [pad[1], pad[1]], [0, 0]])

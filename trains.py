@@ -133,13 +133,14 @@ def train_process(mode=RunMode.Trains):
                     range(cur_batch * BATCH_SIZE, (cur_batch + 1) * BATCH_SIZE)
                 ]
                 if TRAINS_USE_TFRECORDS:
-                    batch_inputs, batch_seq_len, batch_labels = train_feeder.generate_batch_by_tfrecords(sess)
+                    batch_inputs, batch_seq_len, batch_labels, batch_labels_len = train_feeder.generate_batch_by_tfrecords(sess)
                 else:
-                    batch_inputs, batch_seq_len, batch_labels = train_feeder.generate_batch_by_files(index_list)
+                    batch_inputs, batch_seq_len, batch_labels, batch_labels_len = train_feeder.generate_batch_by_files(index_list)
 
                 feed = {
                     model.inputs: batch_inputs,
                     model.labels: batch_labels,
+                    model.label_len: batch_labels_len
                 }
 
                 summary_str, batch_cost, step, _ = sess.run(
@@ -166,16 +167,17 @@ def train_process(mode=RunMode.Trains):
                         range(cur_batch * TEST_BATCH_SIZE, (cur_batch + 1) * TEST_BATCH_SIZE)
                     ]
                     if TRAINS_USE_TFRECORDS:
-                        test_inputs, batch_seq_len, test_labels = test_feeder.generate_batch_by_tfrecords(sess)
+                        test_inputs, batch_seq_len, test_labels, test_labels_len = test_feeder.generate_batch_by_tfrecords(sess)
                     else:
-                        test_inputs, batch_seq_len, test_labels = test_feeder.generate_batch_by_files(index_test)
+                        test_inputs, batch_seq_len, test_labels, test_labels_len = test_feeder.generate_batch_by_files(index_test)
 
                     val_feed = {
                         model.inputs: test_inputs,
-                        model.labels: test_labels
+                        model.labels: test_labels,
+                        model.label_len: test_labels_len
                     }
-                    dense_decoded, last_batch_err, lr = sess.run(
-                        [model.dense_decoded, model.last_batch_error, model.lrn_rate],
+                    dense_decoded, lr = sess.run(
+                        [model.dense_decoded, model.lrn_rate],
                         feed_dict=val_feed
                     )
                     accuracy = utils.accuracy_calculation(
@@ -184,9 +186,9 @@ def train_process(mode=RunMode.Trains):
                         ignore_value=-1,
                     )
                     log = "Epoch: {}, Step: {}, Accuracy = {:.3f}, Cost = {:.4f}, " \
-                          "Time = {:.3f}, LearningRate: {}, LastBatchError: {}"
+                          "Time = {:.3f}, LearningRate: {}"
                     print(log.format(
-                        epoch_count, step, accuracy, avg_train_cost, time.time() - batch_time, lr, last_batch_err
+                        epoch_count, step, accuracy, avg_train_cost, time.time() - batch_time, lr
                     ))
                     _avg_train_cost = avg_train_cost
                     if accuracy >= TRAINS_END_ACC and epoch_count >= TRAINS_END_EPOCHS and avg_train_cost <= TRAINS_END_COST:
