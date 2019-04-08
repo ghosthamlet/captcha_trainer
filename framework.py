@@ -252,18 +252,18 @@ class GraphOCR(object):
 
         # Option 2: tf.contrib.ctc.ctc_beam_search_decoder
         # (it's slower but you'll get better results)
-        self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(
-            self.predict,
-            self.seq_len,
-            merge_repeated=False
-        )
-
-        # Find the optimal path
-        # self.decoded, self.log_prob = tf.nn.ctc_beam_search_decoder(
+        # self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(
         #     self.predict,
         #     self.seq_len,
-        #     merge_repeated=False,
+        #     merge_repeated=False
         # )
+
+        # Find the optimal path
+        self.decoded, self.log_prob = tf.nn.ctc_beam_search_decoder(
+            self.predict,
+            self.seq_len,
+            merge_repeated=False,
+        )
 
         self.dense_decoded = tf.sparse_tensor_to_dense(self.decoded[0], default_value=-1, name="dense_decoded")
 
