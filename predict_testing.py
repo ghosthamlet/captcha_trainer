@@ -3,8 +3,10 @@
 # Author: kerlomz <kerlomz@gmail.com>
 import io
 import cv2
+import time
 import numpy as np
 import PIL.Image as PIL_Image
+import warpctc_tensorflow
 import tensorflow as tf
 from config import *
 from pretreatment import preprocessing
@@ -83,11 +85,18 @@ if __name__ == '__main__':
     sess.graph.finalize()
 
     # Fill in your own sample path
-    image_dir = r"E:\Task\Trains\****"
-    for i, p in enumerate(os.listdir(image_dir)):
+    image_dir = r"/media/kerlomz/Software/TrainSet/cy_trans_trains"
+    true_count = 0
+    total_count = 0
+    import random
+    group = os.listdir(image_dir)
+    # random.shuffle(group)
+    for i, p in enumerate(group):
         n = os.path.join(image_dir, p)
         if i > 1000:
             break
+
+        st = time.time()
         with open(n, "rb") as f:
             b = f.read()
 
@@ -98,6 +107,11 @@ if __name__ == '__main__':
             dense_decoded_op,
             x_op,
         )
+        label = p.split("_")[0]
+        if label.lower() == predict_text:
+            true_count += 1
+        total_count += 1
+        print(i, label, predict_text, label.lower() == predict_text, (time.time() - st) * 1000)
 
-        print(i, p, predict_text)
+    print('rate', true_count / total_count)
 

@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 # Author: kerlomz <kerlomz@gmail.com>
 import sys
-
+import warpctc_tensorflow
 import tensorflow as tf
 from distutils.version import StrictVersion
 from config import *
@@ -92,15 +92,22 @@ class GraphOCR(object):
         self.global_step = tf.train.get_or_create_global_step()
         # ctc loss function, using forward and backward algorithms and maximum likelihood.
 
-        self.loss = tf.nn.ctc_loss(
-            labels=self.labels,
-            inputs=self.predict,
-            sequence_length=self.seq_len,
-            ctc_merge_repeated=CTC_MERGE_REPEATED,
-            preprocess_collapse_repeated=PREPROCESS_COLLAPSE_REPEATED,
-            ignore_longer_outputs_than_inputs=False,
-            time_major=True
-        )
+        # self.loss = tf.nn.ctc_loss(
+        #     labels=self.labels,
+        #     inputs=self.predict,
+        #     sequence_length=self.seq_len,
+        #     ctc_merge_repeated=CTC_MERGE_REPEATED,
+        #     preprocess_collapse_repeated=PREPROCESS_COLLAPSE_REPEATED,
+        #     ignore_longer_outputs_than_inputs=False,
+        #     time_major=True
+        # )
+        with tf.get_default_graph()._kernel_label_map({"CTCLoss": "WarpCTC"}):
+
+            self.loss = tf.nn.ctc_loss(
+                inputs=self.predict,
+                labels=self.labels,
+                sequence_length=self.seq_len
+            )
 
         self.cost = tf.reduce_mean(self.loss)
         tf.summary.scalar('cost', self.cost)
